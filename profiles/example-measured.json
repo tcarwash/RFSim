@@ -1,0 +1,1 @@
+{"schema":1,"name":"example-not-a-measurement","provenance":{"kind":"illustrative","note":"Replace with capture IDs, carrier, date, estimation method and uncertainty"},"taps":[{"delay_s":0,"power_db":0,"spread_hz":0.25},{"delay_s":0.002,"power_db":-3,"spread_hz":0.25}]}
