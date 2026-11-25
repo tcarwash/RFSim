@@ -109,6 +109,11 @@ installed PyTorch CUDA/ROCm runtime and batched device arithmetic.
 Use `iter_iq_batches` for bounded chunked outputs. Both NVIDIA and AMD
 PyTorch GPU runtimes use the `cuda` device name.
 
+A [contributor GPU container guide](contrib/experiment-queue/GPU_CONTAINERS.md)
+provides pinned CUDA and ROCm Dockerfiles and a paired on-host CPU/GPU
+benchmark, which publishes reproducible throughput and NumPy parity evidence.
+Neither image changes the default CPU regression suite.
+
 Torch does **not** silently fall back to CPU. The GPU backend currently
 uses seeded CPU-generated fading/noise so numerical results can be checked
 against NumPy; it is not guaranteed to be faster. Measurements and backend
