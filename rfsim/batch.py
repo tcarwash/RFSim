@@ -76,13 +76,29 @@ def _validate_case(case, fs):
 def _torch_batch(x, fs, cases, *, device, dtype, torch):
     """Run one bounded group using shared input FFTs and GPU tensor math."""
     n = len(x)
+    # Before touching GPU memory, bound the *number of distinct tap delays*
+    # as well as batch size. Each delay creates an entire (cases, samples)
+    # complex coefficient matrix; a custom measured profile can contain many
+    # more taps than the built-in three-tap channels.
+    resolved = [_validate_case(case, fs) for case in cases]
+    delays = {
+        tap.delay_s * fs for taps in resolved for tap in taps
+        if int(np.floor(tap.delay_s * fs)) < n
+    }
+    nfft = next_fast_len(n + 64)
+    # Conservative allowance for per-delay matrices, base/output/noise,
+    # interpolation workspace, and the shared fractional-delay FFT.
+    estimated_bytes = n * len(cases) * 16 * (4 + len(delays)) + nfft * 16 * 3
+    if estimated_bytes > 512 * 1024 * 1024:
+        raise ValueError(
+            "torch tap/channel staging exceeds 512 MiB; reduce batch_size "
+            "or shorten the waveform"
+        )
     complex_type = {"complex64": torch.complex64, "complex128": torch.complex128}[dtype]
     base = torch.as_tensor(x, dtype=complex_type, device=device)
     result = torch.zeros((len(cases), n), dtype=complex_type, device=device)
     delayed_cache = {}
     freq_cache = {}
-    nfft = next_fast_len(n + 64)
-
     def delayed(delay):
         if delay in delayed_cache:
             return delayed_cache[delay]
@@ -120,7 +136,7 @@ def _torch_batch(x, fs, cases, *, device, dtype, torch):
     cfo = []
     input_power = float(np.mean(np.abs(x)**2))
     for index, case in enumerate(cases):
-        taps = _validate_case(case, fs)
+        taps = resolved[index]
         seed = case.get("seed", 0)
         fade_seed, noise_seed = np.random.SeedSequence(seed).spawn(2)
         rng = np.random.default_rng(fade_seed)

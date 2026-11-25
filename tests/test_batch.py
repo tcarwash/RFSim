@@ -5,7 +5,9 @@ import unittest
 import numpy as np
 
 from rfsim import Tap, apply_iq
-from rfsim.batch import apply_iq_batch, iter_iq_batches
+from rfsim.batch import _torch_batch, apply_iq_batch, iter_iq_batches
+from unittest.mock import patch
+import rfsim.batch as batch_module
 
 
 class BatchChannel(unittest.TestCase):
@@ -60,6 +62,19 @@ class BatchChannel(unittest.TestCase):
                 x, self.fs, [{"profile": "awgn", "seed": 1}],
                 backend="torch", device="cpu", batch_size=256,
             )
+
+    def test_large_custom_multipath_profile_fails_before_gpu_allocations(self):
+        # A single case with many distinct delays allocates one full
+        # coefficient matrix per delay, even if batch_size is only one.
+        # This test needs no PyTorch install: the guard precedes GPU setup.
+        profile = tuple(Tap(delay_s=i / 12000) for i in range(60))
+        x = np.ones(1_000_000, dtype=np.complex128)
+        with patch.dict(batch_module.PROFILES, {"many_taps": profile}):
+            with self.assertRaisesRegex(ValueError, "tap/channel staging"):
+                _torch_batch(
+                    x, self.fs, [{"profile": "many_taps", "seed": 0}],
+                    device="cuda", dtype="complex64", torch=object(),
+                )
 
     @unittest.skipUnless(importlib.util.find_spec("torch"), "optional torch unavailable")
     def test_torch_cpu_matches_reference(self):
