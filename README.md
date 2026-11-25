@@ -167,11 +167,22 @@ See upstream [Data2G](https://github.com/arodland/Data2G) and
 for their original simulator sources and RF research notes.
 
 ## Test evidence (2026-11-25)
-- 21 local unit tests passed, including direct upstream Data2G HF/FM wrapper
+- 23 local unit tests passed, including direct upstream Data2G HF/FM wrapper
   parity, measured capture loading, registry, channel timelines and manifests.
-- Python MCP client verified 18 tools, registered profiles and full HF/FM
+- Python MCP client verified 19 tools, registered profiles and full HF/FM
   simulation; additional recording estimation MCP tool was subsequently added.
 - PixelQSO real encode/decode integration: 2 pytest tests passed; three
   manually exercised radio paths, two exact cards and one disturbed NVIS miss.
 - SoapyFang receiver branch: 18 pytest tests passed including split-block
   deterministic IQ matching. Nothing transmitted over radio hardware.
+
+## Statistical channel diagnostics
+
+Run channel-spectrum and fading diagnostics:
+`rfsim validate --profile mobile-urban --carrier-hz 146000000 --duration-s 60`.
+The MCP `validate_channel` tool returns the same data, including RMS Doppler,
+the nominal maximum frequency spread, fraction of PSD inside the modeled
+band, mean transfer power and fading percentiles. This verifies numerical
+behavior of the synthetic model, not empirical path accuracy. A 60-second
+VHF urban check yielded 4.18 Hz RMS Doppler, with 98.18% of PSD within the
+nominal 5.41 Hz maximum plus FFT-bin tolerance.

@@ -55,6 +55,12 @@ def main():
     a.add_argument("--fs",type=float,required=True);a.add_argument("--start-s",type=float)
     a=sub.add_parser("experiment")
     a.add_argument("manifest")
+    a=sub.add_parser("validate")
+    a.add_argument("--profile",default="mobile-urban")
+    a.add_argument("--fs",type=float,default=48000)
+    a.add_argument("--duration-s",type=float,default=60)
+    a.add_argument("--carrier-hz",type=float,default=146e6)
+    a.add_argument("--seed",type=int,default=0)
     a=sub.add_parser("data2g")
     a.add_argument("input_path");a.add_argument("output_path")
     a.add_argument("--path",choices=["hf","fm"],required=True)
@@ -99,6 +105,9 @@ def main():
         from .experiments import run_experiment
         r=run_experiment(d["manifest"])
         out=dict(experiment=r["experiment"],cases=len(r["cases"]))
+    elif cmd=="validate":
+        from .validation import analyze_profile
+        out=analyze_profile(**d)
     elif cmd=="data2g":
         from .data2g_bridge import fm_audio,hf_audio
         from .experiments import _wav

@@ -167,6 +167,14 @@ def main():
                    cfo_hz=cfo_hz,clock_ppm=clock_ppm)
         wavfile.write(output_path,int(fs),np.asarray(y,dtype=np.float32))
         return dict(output=output_path,samples=len(y),sample_rate=fs,model="Data2G HF")
+    @m.tool()
+    def validate_channel(profile: str="mobile-urban", fs: float=48000,
+                         duration_s: float=60, carrier_hz: float=146e6,
+                         seed: int=0) -> dict:
+        """Inspect fading power, Doppler PSD and model spectral support."""
+        from .validation import analyze_profile
+        return analyze_profile(profile,fs=fs,duration_s=duration_s,
+                               carrier_hz=carrier_hz,seed=seed)
     m.run()
 
 if __name__=="__main__":
