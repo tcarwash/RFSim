@@ -80,3 +80,19 @@ or empirical RF propagation.
 - CPU workloads should continue to use the much smaller
   `Dockerfile` runtime. Do not pollute the CPU default with GPU
   libraries or assume those images are interchangeable.
+
+
+## Device-native stochastic simulation and warmup
+
+The same approved CUDA/ROCm runtime containers can run RFSim's new
+[GPU-native fading/AWGN mode](GPU_NATIVE_RNG.md). Source revisions must
+include the native generator and statistical benchmark; the runtime image
+allowlist remains host-specific and unchanged when only pinned source
+code changes.
+
+Select `--rng torch --reference-cases 45 --gpu-warmups 1 --gpu-trials 3`
+for a common 45-case matrix. The paired benchmark records both the first
+run's cold-start cost and three warmed full-simulation timings; it never
+reports warm speedup as though it described one-shot execution. Statistical
+checks replace samplewise NumPy comparison because the random streams
+differ across frameworks and devices.

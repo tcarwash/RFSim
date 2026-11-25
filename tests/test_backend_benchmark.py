@@ -85,6 +85,36 @@ class BackendBenchmark(unittest.TestCase):
             self.assertIsNone(result["max_relative_rmse"])
             json.loads((root / "result/metrics.json").read_text())
 
+    def test_device_native_mode_uses_statistical_checks_not_exact_numpy(self):
+        import importlib.util
+        if not importlib.util.find_spec("torch"):
+            self.skipTest("optional PyTorch unavailable")
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            config = self.config(root)
+            data = benchmark(
+                config, root / "native", backend="torch", device="cpu",
+                rng="torch", reference_cases=8, batch_size=4,
+            )
+            self.assertEqual(data["status"], "PASS")
+            self.assertEqual(data["rng"], "torch")
+            self.assertEqual(data["validation_mode"], "statistical")
+            self.assertEqual(data["reference_cases"], 8)
+            self.assertTrue(all(
+                row["statistically_valid"] for row in data["cases"]
+            ))
+            self.assertTrue(all(
+                row["matches_numpy"] is None for row in data["cases"]
+            ))
+            self.assertTrue(
+                any(row["validation_kind"] == "awgn_noise_power"
+                    for row in data["cases"])
+            )
+            self.assertIsNone(data["max_absolute_error"])
+            self.assertEqual(
+                json.loads((root/"native/metrics.json").read_text())["status"], "PASS"
+            )
+
     def test_bounds(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
