@@ -35,8 +35,16 @@ def benchmark(
     batch_size: int = 8,
     reference_cases: int = 12,
     staging_megabytes: int = 256,
+    rng: str = "numpy",
+    awgn_snr_tolerance_db: float = 1.25,
 ):
     config = read_config(config_path)
+    if rng not in ("numpy", "torch"):
+        raise ValueError("rng must be numpy or torch")
+    if rng == "torch" and backend != "torch":
+        raise ValueError("device-native rng requires the torch backend")
+    if not math.isfinite(awgn_snr_tolerance_db) or not 0 < awgn_snr_tolerance_db <= 10:
+        raise ValueError("AWGN SNR tolerance must be in (0, 10] dB")
     if type(repetitions) is not int or not 1 <= repetitions <= 1000:
         raise ValueError("repetitions must be 1..1000")
     n = config["samples"] if samples is None else samples
@@ -49,9 +57,9 @@ def benchmark(
     if type(batch_size) is not int or not 1 <= batch_size <= 256:
         raise ValueError("batch_size must be 1..256")
 
-    rng = np.random.default_rng(config.get("waveform_seed", 2026))
-    x = ((2 * rng.integers(0, 2, n) - 1)
-         + 1j * (2 * rng.integers(0, 2, n) - 1)) / math.sqrt(2)
+    waveform_rng = np.random.default_rng(config.get("waveform_seed", 2026))
+    x = ((2 * waveform_rng.integers(0, 2, n) - 1)
+         + 1j * (2 * waveform_rng.integers(0, 2, n) - 1)) / math.sqrt(2)
     cases = [
         {
             "profile": profile, "snr_db": snr,
@@ -72,7 +80,7 @@ def benchmark(
     iterator = iter_iq_batches(
         x, config["sample_rate"], cases,
         backend=backend, device=device, dtype=dtype,
-        batch_size=effective_batch_size,
+        batch_size=effective_batch_size, rng=rng,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -105,7 +113,50 @@ def benchmark(
             max_abs = None
             relative_rmse = None
             matches_reference = None
-            if offset < reference_cases:
+            validation_kind = None
+            awgn_snr_error_db = None
+            if offset < reference_cases and rng == "torch":
+                comparisons += 1
+                # Independent device-native random streams cannot be
+                # samplewise compared with NumPy. Validate the actual AWGN
+                # variance for AWGN, and bound physically plausible output
+                # power for fading channels. The paired CPU/GPU experiment
+                # additionally validates *profile-group* power statistics
+                # against the independently generated CPU channel.
+                if finite:
+                    input_power = float(np.mean(np.abs(x) ** 2))
+                    if case["profile"] == "awgn":
+                        validation_kind = "awgn_noise_power"
+                        target_snr = case.get("snr_db")
+                        expected_variance = (
+                            input_power * 10 ** (-target_snr / 10)
+                            if target_snr is not None else 0.0
+                        )
+                        measured_variance = float(np.mean(np.abs(y - x) ** 2))
+                        if expected_variance > 0 and measured_variance > 0:
+                            awgn_snr_error_db = 10 * math.log10(
+                                measured_variance / expected_variance
+                            )
+                            matches_reference = bool(
+                                math.isfinite(awgn_snr_error_db)
+                                and abs(awgn_snr_error_db) <= awgn_snr_tolerance_db
+                            )
+                        elif expected_variance == 0:
+                            matches_reference = measured_variance <= 1e-10
+                        else:
+                            matches_reference = False
+                    else:
+                        validation_kind = "fading_power_sanity"
+                        snr = case.get("snr_db")
+                        nominal = 1 + (10 ** (-snr / 10) if snr is not None else 0)
+                        ratio = power / max(input_power, 1e-12)
+                        matches_reference = bool(
+                            0.03 <= ratio <= 10 * nominal
+                        )
+                else:
+                    validation_kind = "invalid_output"
+                    matches_reference = False
+            elif offset < reference_cases:
                 comparisons += 1
                 if finite:
                     ref = apply_iq(x, config["sample_rate"], **case)
@@ -138,11 +189,19 @@ def benchmark(
                 "finite": finite,
                 "max_absolute_error": max_abs,
                 "relative_rmse": relative_rmse,
-                "matches_numpy": matches_reference,
+                "matches_numpy": matches_reference if rng == "numpy" else None,
+                "statistically_valid": matches_reference if rng == "torch" else None,
+                "validation_kind": validation_kind,
+                "awgn_snr_error_db": awgn_snr_error_db,
             })
             offset += 1
 
-    failures = [r for r in rows if not r["finite"] or r["matches_numpy"] is False]
+    failures = [
+        r for r in rows
+        if not r["finite"]
+        or r["matches_numpy"] is False
+        or r["statistically_valid"] is False
+    ]
     status = (
         "NEGATIVE_FINDING" if failures
         else "UNVERIFIED" if backend == "torch" and comparisons == 0
@@ -153,6 +212,9 @@ def benchmark(
         "suite": "DORC RFSim optional batched IQ backend benchmark",
         "status": status,
         "backend": backend,
+        "rng": rng,
+        "validation_mode": "statistical" if rng == "torch" else "samplewise",
+        "awgn_snr_tolerance_db": awgn_snr_tolerance_db if rng == "torch" else None,
         "device": device or "cpu",
         "dtype": dtype if backend == "torch" else "complex128",
         "torch_version": None,
@@ -172,10 +234,13 @@ def benchmark(
         "max_relative_rmse": max_relative_rmse if comparable_errors else None,
         "cases": rows,
         "interpretation": (
-            "End-to-end throughput includes CPU-generated stochastic channel "
-            "coefficients, host-to-device transfers, device arithmetic, and "
-            "device-to-host output transfers. CUDA and ROCm both use torch "
-            "device='cuda'. This is not decoder BER/PER or a physical RF test."
+            ("GPU-native fading/AWGN uses independent per-case on-device Torch RNG streams. "
+             "Random sequences differ from NumPy; validation checks empirical AWGN noise "
+             "power, finite faded-channel power, and the paired benchmark's aggregate "
+             "power statistics. " if rng == "torch" else
+             "Seeded CPU-generated stochastic coefficients permit samplewise NumPy checks. ")
+            + "End-to-end timing includes all channel generation, transfers and GPU arithmetic; "
+            "CUDA and ROCm both use torch device='cuda'. This is not BER/PER or a physical RF test."
         ),
     }
     if backend == "torch":
@@ -191,7 +256,7 @@ def benchmark(
     report = [
         "# DORC RFSim IQ backend throughput benchmark", "",
         f"**Status:** {status}",
-        f"**Backend/device:** {backend}/{metrics['device']}",
+        f"**Backend/device:** {backend}/{metrics['device']} (rng={rng}, validation={metrics['validation_mode']})",
         f"**Cases:** {len(cases)}; **samples per case:** {n}",
         f"**Wall-clock channel time:** {elapsed:.3f} s",
         f"**Throughput:** {metrics['million_complex_samples_per_second']:.3f} million complex samples/s",
@@ -216,6 +281,7 @@ def main():
     p.add_argument("--backend", choices=("numpy", "torch"), default="numpy")
     p.add_argument("--device", choices=("cpu", "cuda"))
     p.add_argument("--dtype", choices=("complex64", "complex128"), default="complex64")
+    p.add_argument("--rng", choices=("numpy", "torch"), default="numpy")
     p.add_argument("--samples", type=int)
     p.add_argument("--repetitions", type=int, default=1)
     p.add_argument("--batch-size", type=int, default=8)
@@ -230,7 +296,7 @@ def main():
         dtype=args.dtype, samples=args.samples,
         repetitions=args.repetitions, batch_size=args.batch_size,
         reference_cases=args.reference_cases,
-        staging_megabytes=args.staging_megabytes,
+        staging_megabytes=args.staging_megabytes, rng=args.rng,
     )
     print(result["status"], result["total_cases"], "cases",
           f"{result['million_complex_samples_per_second']:.3f} Msamples/s")

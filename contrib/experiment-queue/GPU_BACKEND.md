@@ -77,6 +77,12 @@ artifact serialization.
 A benchmark without numerical reference comparisons is marked
 `UNVERIFIED`, not `PASS`.
 
+For fully device-native stochastic fading and AWGN, choose
+`rng="torch"` with the optional Torch GPU backend and follow
+[the statistical validation guide](GPU_NATIVE_RNG.md). The prior
+`rng="numpy"` mode is still the samplewise reference path. Do not compare
+different RNG sequences sample-by-sample.
+
 For a *paired on-host CPU-vs-GPU run*, use
 `python -m experiments.dorc_cpu_gpu_compare`, which produces flat result
 artifacts for DORC and measures speedup without comparing different machines.

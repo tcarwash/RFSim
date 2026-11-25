@@ -114,6 +114,13 @@ provides pinned CUDA and ROCm Dockerfiles and a paired on-host CPU/GPU
 benchmark, which publishes reproducible throughput and NumPy parity evidence.
 Neither image changes the default CPU regression suite.
 
+For sustained Monte Carlo workloads, the explicit
+[GPU-native random fading/AWGN option](contrib/experiment-queue/GPU_NATIVE_RNG.md)
+(`rng="torch"`) avoids generating/copying full fading/noise arrays on the
+CPU. It uses independent seeded Torch streams and statistical, not
+samplewise NumPy, verification. The paired benchmark can record both cold
+and warmed GPU throughput without replacing the CPU reference.
+
 Torch does **not** silently fall back to CPU. The GPU backend currently
 uses seeded CPU-generated fading/noise so numerical results can be checked
 against NumPy; it is not guaranteed to be faster. Measurements and backend

@@ -73,7 +73,7 @@ def _validate_case(case, fs):
     return tuple(taps)
 
 
-def _torch_batch(x, fs, cases, *, device, dtype, torch):
+def _torch_batch(x, fs, cases, *, device, dtype, torch, rng="numpy"):
     """Run one bounded group using shared input FFTs and GPU tensor math."""
     n = len(x)
     # Before touching GPU memory, bound the *number of distinct tap delays*
@@ -128,6 +128,51 @@ def _torch_batch(x, fs, cases, *, device, dtype, torch):
                 value = raw
         delayed_cache[delay] = value
         return value
+
+    if rng == "torch":
+        # Each (case, tap, noise) uses a deterministic per-device RNG stream.
+        # The large fading/noise arrays never visit host memory. Different
+        # Torch runtimes/devices need statistical, not samplewise, validation.
+        from . import torch_stochastic
+
+        with torch.no_grad():
+            input_power = float(np.mean(np.abs(x)**2))
+            for index, case in enumerate(cases):
+                taps = resolved[index]
+                weights = np.asarray(
+                    [10 ** (tap.power_db / 10) for tap in taps], dtype=float
+                )
+                weights /= weights.sum()
+                for tap_index, (tap, weight) in enumerate(zip(taps, weights)):
+                    delay = tap.delay_s * fs
+                    if int(np.floor(delay)) >= n:
+                        continue
+                    amp = torch_stochastic.gain(
+                        n, fs, tap, case.get("seed", 0), tap_index,
+                        torch=torch, device=device, dtype=complex_type,
+                    )
+                    result[index].add_(delayed(delay) * amp * math.sqrt(weight))
+            cfo = [case.get("cfo_hz") or 0.0 for case in cases]
+            if any(cfo):
+                frequencies = torch.as_tensor(
+                    cfo, device=device, dtype=torch.float64
+                )[:, None]
+                indices = torch.arange(n, device=device, dtype=torch.float64)[None, :]
+                phase = torch.remainder(frequencies * indices / fs, 1.0)
+                result.mul_(
+                    torch.exp(2j * torch.pi * phase).to(complex_type)
+                )
+            for index, case in enumerate(cases):
+                snr = case.get("snr_db")
+                if snr is not None:
+                    power = input_power if case.get("signal_power") is None else case["signal_power"]
+                    bw = fs if case.get("noise_bw_hz") is None else case["noise_bw_hz"]
+                    variance = power * fs / bw * 10 ** (-snr / 10)
+                    result[index].add_(torch_stochastic.noise(
+                        n, variance, case.get("seed", 0),
+                        torch=torch, device=device, dtype=complex_type,
+                    ))
+            return result.cpu().numpy()
 
     # First collect exact seeded channel realizations from the NumPy oracle.
     # Group each unique fractional-delay tap for a batched device multiply.
@@ -185,12 +230,15 @@ def iter_iq_batches(
     device=None,
     batch_size=16,
     dtype="complex64",
+    rng="numpy",
 ):
     """Yield (metadata, output_array) chunks of simulated complex IQ.
 
-    The CPU NumPy path produces the exact legacy apply_iq output. The optional
-    torch path executes channel arithmetic on device while retaining seeded
-    NumPy coefficient generation, enabling case-by-case numerical comparison.
+    The CPU NumPy path produces the exact legacy apply_iq output. With
+    backend="torch", rng="numpy" preserves case-by-case samplewise parity.
+    Explicit rng="torch" generates noise and fading on the requested device
+    using deterministic per-case streams, but requires *statistical*
+    validation rather than samplewise comparison with NumPy.
 
     No implicit GPU->CPU fallback: backend='torch' requires a device explicitly,
     and an unavailable CUDA/ROCm device raises an error. Unlike legacy apply_iq,
@@ -205,6 +253,10 @@ def iter_iq_batches(
         raise ValueError("backend must be numpy or torch")
     if dtype not in ("complex64", "complex128"):
         raise ValueError("dtype must be complex64 or complex128")
+    if rng not in ("numpy", "torch"):
+        raise ValueError("rng must be numpy or torch")
+    if rng == "torch" and backend != "torch":
+        raise ValueError("device-native rng requires backend='torch'")
     if backend == "torch":
         # A typical batch stages multiple complex coefficient arrays, plus
         # output, input and FFT workspaces; reject unbounded direct requests.
@@ -244,7 +296,9 @@ def iter_iq_batches(
                     raise ValueError(f"unsupported case options: {sorted(unexpected)}")
             values = np.stack([apply_iq(x, fs, **c) for c in group])
         else:
-            values = _torch_batch(x, fs, group, device=device, dtype=dtype, torch=torch)
+            values = _torch_batch(
+                x, fs, group, device=device, dtype=dtype, torch=torch, rng=rng
+            )
         yield group, values
 
 
