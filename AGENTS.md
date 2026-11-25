@@ -11,6 +11,11 @@ RFSim is an independent offline RF propagation simulator. It is also the
 - Keep simulator implementation changes here; change the shared benchmark
   matrix in DORC, pinning each repository's full **pushed** Git revision
   separately in the queue issue.
+- For optional accelerated IQ Monte Carlo runs, follow
+  `contrib/experiment-queue/GPU_BACKEND.md`. Explicitly select
+  `backend="torch"` with the contributor-approved CUDA/ROCm device, compare
+  against the NumPy reference, and record measured throughput. Do not assume
+  the GPU is faster or automatically switch a CPU baseline to GPU.
 - Favor offline, deterministic tests with fixed seeds and structured evidence.
   Simulation output is not BER/PER unless the actual modem decoder is tested,
   and is not empirical RF path validation.

@@ -36,3 +36,12 @@ To submit via the distributed queue, use source URL
 with `inputs` referencing the DORC matrix as `repository:"self"`,
 also pinned to its own full pushed SHA. See the DORC repository's
 `AGENTS.md` and `docs/RFSIM_COMMON_SUITE.md`.
+
+
+## Optional GPU/large-batch experiments
+
+The standard common channel suite stays CPU-only. Large Monte Carlo IQ sweeps
+can optionally use the Torch-backed [batched IQ backend](GPU_BACKEND.md) and
+`experiments/dorc_backend_benchmark.py` for numerical parity and throughput
+evidence. A separate DORC issue template selects the GPU backend and target
+machine's approved runtime image; it never changes contributor permissions.

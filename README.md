@@ -97,6 +97,24 @@ to estimate taps. Replay does not include noise, receiver nonlinearities, or
 RF front-end calibration. Synthetic estimation and replay are regression-tested;
 a true measured over-the-air pair has not yet been validated.
 
+## Optional batched IQ CPU/GPU simulation
+
+RFSim also provides a separate [batched IQ API and DORC throughput
+benchmark](contrib/experiment-queue/GPU_BACKEND.md). The legacy
+`apply_iq` implementation remains the default scientific reference.
+
+`rfsim.batch.apply_iq_batch(..., backend="numpy")` reproduces the current
+CPU simulator. Set `backend="torch", device="cuda"` to request an explicitly
+installed PyTorch CUDA/ROCm runtime and batched device arithmetic.
+Use `iter_iq_batches` for bounded chunked outputs. Both NVIDIA and AMD
+PyTorch GPU runtimes use the `cuda` device name.
+
+Torch does **not** silently fall back to CPU. The GPU backend currently
+uses seeded CPU-generated fading/noise so numerical results can be checked
+against NumPy; it is not guaranteed to be faster. Measurements and backend
+limits are in the linked guide. The standard DORC 45-case regression
+suite remains CPU-based.
+
 ## Reproducible experiment manifests
 
 `rfsim experiment experiments/example.json` (or MCP `run_manifest`) executes
