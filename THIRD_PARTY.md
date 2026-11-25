@@ -11,6 +11,7 @@ and experiments in:
   `e18700bf8be8f6a13657c9f449d4c55876847568`,
   especially `sstvae/hfchannel.py` and `sstvae/waveform_channel.py`.
 
+RFSim original source is MIT-licensed (see `LICENSE`).
 Both upstream repositories carry the **Artistic License 2.0**. RFSim's
 `data2g_bridge.py` dynamically imports the upstream Data2G package for
 full parity with its HF and FM channel models; Data2G itself is never

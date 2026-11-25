@@ -186,3 +186,9 @@ band, mean transfer power and fading percentiles. This verifies numerical
 behavior of the synthetic model, not empirical path accuracy. A 60-second
 VHF urban check yielded 4.18 Hz RMS Doppler, with 98.18% of PSD within the
 nominal 5.41 Hz maximum plus FFT-bin tolerance.
+
+## License
+
+RFSim original source is licensed under the [MIT License](LICENSE).
+The separately installed Data2G and SSTVAE projects retain their own
+Artistic License 2.0 terms; see [THIRD_PARTY.md](THIRD_PARTY.md).
