@@ -11,6 +11,9 @@ RFSim is an independent offline RF propagation simulator. It is also the
 - Keep simulator implementation changes here; change the shared benchmark
   matrix in DORC, pinning each repository's full **pushed** Git revision
   separately in the queue issue.
+- For actual DORC GPU container execution, follow
+  `contrib/experiment-queue/GPU_CONTAINERS.md`; use a locally tested pinned
+  image ID with explicit contributor GPU approval, never generic images.
 - For optional accelerated IQ Monte Carlo runs, follow
   `contrib/experiment-queue/GPU_BACKEND.md`. Explicitly select
   `backend="torch"` with the contributor-approved CUDA/ROCm device, compare

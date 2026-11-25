@@ -77,6 +77,12 @@ artifact serialization.
 A benchmark without numerical reference comparisons is marked
 `UNVERIFIED`, not `PASS`.
 
+For a *paired on-host CPU-vs-GPU run*, use
+`python -m experiments.dorc_cpu_gpu_compare`, which produces flat result
+artifacts for DORC and measures speedup without comparing different machines.
+See [GPU contributor images](GPU_CONTAINERS.md) for reproducible CUDA/ROCm
+Dockerfiles and the queue policy process.
+
 The GPU runtime is intentionally **not included** in RFSim's default
 dependencies. Install a Torch wheel compatible with the contributor's
 driver and architecture inside an *approved, pinned container image*.
