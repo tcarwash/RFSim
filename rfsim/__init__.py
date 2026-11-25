@@ -28,7 +28,8 @@ PROFILES = {
 }
 
 def load_profile(path):
-    doc = json.loads(Path(path).read_text())
+    from .registry import resolve_profile_path
+    doc = json.loads(resolve_profile_path(str(path)).read_text())
     if doc.get("schema") != 1 or not doc.get("provenance"):
         raise ValueError("profile requires schema=1 and provenance")
     taps = tuple(Tap(**t) for t in doc["taps"])
@@ -62,7 +63,7 @@ def apply_iq(samples, fs, profile="awgn", *, snr_db=None, noise_bw_hz=None,
     bw = fs if noise_bw_hz is None else noise_bw_hz
     if not 0 < bw <= fs or 1+clock_ppm*1e-6 <= 0:
         raise ValueError("invalid bandwidth or clock error")
-    taps = PROFILES[profile] if isinstance(profile,str) else tuple(profile)
+    taps = (PROFILES[profile] if profile in PROFILES else load_profile(profile)) if isinstance(profile,str) else tuple(profile)
     if not taps: raise ValueError("empty profile")
     fade_seed, noise_seed = np.random.SeedSequence(seed).spawn(2)
     rng = np.random.default_rng(fade_seed)
@@ -95,7 +96,7 @@ def apply_iq(samples, fs, profile="awgn", *, snr_db=None, noise_bw_hz=None,
 def apply_audio(samples, fs, profile="awgn", *, mode="ssb", deviation_hz=2500, **kwargs):
     x = np.asarray(samples,dtype=float)
     if mode == "ssb":
-        kwargs.setdefault("noise_bw_hz",min(3000,fs/2))
+        if kwargs.get("noise_bw_hz") is None: kwargs["noise_bw_hz"] = min(3000,fs/2)
         # Analytic signal noise has twice the positive-band density of real audio.
         kwargs["noise_bw_hz"] *= 2
         return apply_iq(signal.hilbert(x),fs,profile,**kwargs).real
@@ -104,7 +105,7 @@ def apply_audio(samples, fs, profile="awgn", *, mode="ssb", deviation_hz=2500, *
     rate = fs*factor
     a = signal.resample_poly(x,factor,1)
     z = np.exp(2j*np.pi*np.cumsum(a)*deviation_hz/rate)
-    kwargs.setdefault("noise_bw_hz",15000)
+    if kwargs.get("noise_bw_hz") is None: kwargs["noise_bw_hz"] = 15000
     y = apply_iq(z,rate,profile,**kwargs)
     y = signal.sosfilt(signal.butter(4,7500,fs=rate,output="sos"),y)
     demod = np.angle(y[1:]*y[:-1].conj())*rate/(2*np.pi*deviation_hz)

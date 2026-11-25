@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "HF profile example",
+  "signal": {
+    "path": "example.npy",
+    "format": "iq_npy",
+    "sample_rate": 12000
+  },
+  "channel": {
+    "interface": "iq",
+    "profile": "mpp",
+    "noise_bw_hz": 3000
+  },
+  "sweep": {
+    "snr_db": [-5, 0, 5, 10, 15],
+    "seeds": [0, 1, 2]
+  },
+  "output_dir": "../results/rfsim-demo"
+}
