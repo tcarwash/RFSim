@@ -1,20 +1,20 @@
 # Optional RFSim batched IQ GPU backend
 
-The original \`apply_iq\` and DORC common 45-case regression baseline remain
+The original `apply_iq` and DORC common 45-case regression baseline remain
 NumPy/CPU-only. GPU acceleration is an **explicit alternative**, not a
 default or an automatic fallback.
 
-The opt-in API in \`rfsim.batch\` exposes \`apply_iq_batch\` and the bounded
-streaming \`iter_iq_batches\`. They accept a common input IQ waveform and
-multiple independent case dictionaries (\`profile\`, \`snr_db\`, \`seed\`,
-\`cfo_hz\`, \`noise_bw_hz\`, \`signal_power\`).
+The opt-in API in `rfsim.batch` exposes `apply_iq_batch` and the bounded
+streaming `iter_iq_batches`. They accept a common input IQ waveform and
+multiple independent case dictionaries (`profile`, `snr_db`, `seed`,
+`cfo_hz`, `noise_bw_hz`, `signal_power`).
 
-The optional PyTorch backend supports \`device="cuda"\` for **both** NVIDIA
-CUDA and AMD ROCm (PyTorch's ROCm device API uses the \`cuda\` spelling). The
+The optional PyTorch backend supports `device="cuda"` for **both** NVIDIA
+CUDA and AMD ROCm (PyTorch's ROCm device API uses the `cuda` spelling). The
 NumPy backend works without PyTorch installed. A missing or unusable GPU
 raises an error instead of switching to CPU.
 
-\`\`\`python
+```python
 import numpy as np
 from rfsim.batch import apply_iq_batch
 
@@ -30,7 +30,7 @@ gpu = apply_iq_batch(
     device="cuda", dtype="complex64", batch_size=3,
 )
 np.testing.assert_allclose(gpu, cpu, rtol=8e-4, atol=8e-4)
-\`\`\`
+```
 
 The backend uses the original NumPy/Scipy seeded generator for **fading and
 noise**, then performs batched convolution, tap multiplication, CFO mixing and
@@ -45,9 +45,9 @@ Tobios (GTX 1080 Ti), 45×131,072-sample cases achieved approximately
 small GPU test is usually slower. This first backend provides an honest
 platform for profiling and subsequent GPU-native stochastic generation.
 
-Current restrictions: only offline \`apply_iq\` burst-style tap profiles;
-no clock-ppm resampling in Torch; no \`ChannelSession\` timelines,
-\`MeasuredChannel\` replay, audio modulation, or integrated modem decode in
+Current restrictions: only offline `apply_iq` burst-style tap profiles;
+no clock-ppm resampling in Torch; no `ChannelSession` timelines,
+`MeasuredChannel` replay, audio modulation, or integrated modem decode in
 the accelerated API. Invalid unsupported options fail explicitly. The NumPy
 API is unchanged.
 
@@ -55,29 +55,34 @@ API is unchanged.
 
 Run the pinned DORC matrix with the optional backend:
 
-\`\`\`sh
+```sh
 python -m experiments.dorc_backend_benchmark \
   --config /path/to/dorc_experiments/fixtures/rfsim/common_suite.json \
   --backend torch --device cuda --dtype complex64 \
   --samples 131072 --repetitions 1 --batch-size 8 \
   --reference-cases 12 --output /tmp/rfsim-benchmark
-\`\`\`
+```
 
-Set \`--backend numpy\` to collect a CPU result **on the same machine**.
+Set `--backend numpy` to collect a CPU result **on the same machine**.
 The benchmark records end-to-end throughput, numerical differences against
 a configurable number of CPU-reference cases, torch/NumPy versions,
-device name and a case CSV. It outputs \`report.md\`, \`metrics.json\` and
-\`cases.csv\`. For larger Monte Carlo sweeps, increase \`--repetitions\` and
-\`--samples\`; chunking and \`--staging-megabytes\` limit staging memory.
+device name and a case CSV. It outputs `report.md`, `metrics.json` and
+`cases.csv`. For larger Monte Carlo sweeps, increase `--repetitions` and
+`--samples`; chunking and `--staging-megabytes` limit staging memory.
+Torch also checks the **number of distinct tap delays** before allocating
+GPU buffers, limiting memory use from large custom multipath profiles.
+Nonfinite sample outputs and overflowed channel power are reported as a
+`NEGATIVE_FINDING` with valid JSON/CSV evidence instead of crashing during
+artifact serialization.
 A benchmark without numerical reference comparisons is marked
-\`UNVERIFIED\`, not \`PASS\`.
+`UNVERIFIED`, not `PASS`.
 
 The GPU runtime is intentionally **not included** in RFSim's default
 dependencies. Install a Torch wheel compatible with the contributor's
 driver and architecture inside an *approved, pinned container image*.
 GTX 1080 Ti is compute 6.1 (Pascal) and may not work with newer Torch
 builds; RX 6700 XT (gfx1031) may require the contributor's tested
-\`HSA_OVERRIDE_GFX_VERSION\` and a supported ROCm Torch build. Check the
+`HSA_OVERRIDE_GFX_VERSION` and a supported ROCm Torch build. Check the
 numerical smoke test on the target device before accepting a GPU job.
 
 Use DORC's dedicated GPU experiment issue template, which requires a pinned

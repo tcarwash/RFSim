@@ -80,6 +80,7 @@ def benchmark(
     max_error = 0.0
     max_relative_rmse = 0.0
     comparisons = 0
+    comparable_errors = 0
     offset = 0
     while True:
         start = time.perf_counter()
@@ -88,25 +89,47 @@ def benchmark(
         except StopIteration:
             break
         elapsed += time.perf_counter() - start
+        if values.shape != (len(group), n):
+            raise ValueError(
+                "backend returned wrong IQ dimensions: "
+                f"{values.shape} expected {(len(group), n)}"
+            )
         for case, y in zip(group, values):
-            power = float(np.mean(np.abs(y)**2))
-            finite = bool(np.isfinite(y).all()) and math.isfinite(power)
+            finite = bool(np.isfinite(y).all())
+            # Invalid sample values (or overflowed powers) are scientific
+            # negative findings. They must not corrupt JSON/CSV publication.
+            power = float(np.mean(np.abs(y)**2)) if finite else None
+            finite = finite and math.isfinite(power)
+            if not finite:
+                power = None
             max_abs = None
             relative_rmse = None
             matches_reference = None
             if offset < reference_cases:
-                ref = apply_iq(x, config["sample_rate"], **case)
-                difference = y.astype(np.complex128) - ref
-                max_abs = float(np.max(np.abs(difference)))
-                relative_rmse = float(
-                    np.sqrt(np.mean(np.abs(difference)**2)) /
-                    max(float(np.sqrt(np.mean(np.abs(ref)**2))), 1e-12)
-                )
-                tolerance = 1e-7 if dtype == "complex128" else 8e-4
-                matches_reference = bool(np.allclose(y, ref, rtol=tolerance, atol=tolerance))
-                max_error = max(max_error, max_abs)
-                max_relative_rmse = max(max_relative_rmse, relative_rmse)
                 comparisons += 1
+                if finite:
+                    ref = apply_iq(x, config["sample_rate"], **case)
+                    difference = y.astype(np.complex128) - ref
+                    max_abs = float(np.max(np.abs(difference)))
+                    relative_rmse = float(
+                        np.sqrt(np.mean(np.abs(difference)**2)) /
+                        max(float(np.sqrt(np.mean(np.abs(ref)**2))), 1e-12)
+                    )
+                    if not (math.isfinite(max_abs) and math.isfinite(relative_rmse)):
+                        max_abs = None
+                        relative_rmse = None
+                # Even without a comparable error metric, a nonfinite
+                # output has an unequivocally failed reference check.
+                if max_abs is None or relative_rmse is None:
+                    matches_reference = False
+                else:
+                    tolerance = 1e-7 if dtype == "complex128" else 8e-4
+                    matches_reference = bool(
+                        np.allclose(y, ref, rtol=tolerance, atol=tolerance)
+                    )
+                    max_error = max(max_error, max_abs)
+                    max_relative_rmse = max(max_relative_rmse, relative_rmse)
+                    comparable_errors += 1
             rows.append({
                 "profile": case["profile"],
                 "target_snr_db": case["snr_db"],
@@ -145,8 +168,8 @@ def benchmark(
         "elapsed_backend_seconds": elapsed,
         "cases_per_second": len(cases) / elapsed if elapsed > 0 else None,
         "million_complex_samples_per_second": len(cases) * n / elapsed / 1e6 if elapsed > 0 else None,
-        "max_absolute_error": max_error if comparisons else None,
-        "max_relative_rmse": max_relative_rmse if comparisons else None,
+        "max_absolute_error": max_error if comparable_errors else None,
+        "max_relative_rmse": max_relative_rmse if comparable_errors else None,
         "cases": rows,
         "interpretation": (
             "End-to-end throughput includes CPU-generated stochastic channel "
@@ -173,7 +196,9 @@ def benchmark(
         f"**Wall-clock channel time:** {elapsed:.3f} s",
         f"**Throughput:** {metrics['million_complex_samples_per_second']:.3f} million complex samples/s",
         f"**Batch size:** {effective_batch_size}; **reference checks:** {comparisons}",
-        f"**Numerical differences:** max abs {max_error:.4g}; relative RMSE {max_relative_rmse:.4g}",
+        f"**Numerical differences:** max abs "
+        f"{f'{max_error:.4g}' if comparable_errors else 'n/a'}; relative RMSE "
+        f"{f'{max_relative_rmse:.4g}' if comparable_errors else 'n/a'}",
         f"**NumPy:** {np.__version__}; **PyTorch:** {metrics['torch_version'] or 'not used'}",
         f"**GPU:** {metrics['gpu_name'] or 'none'}", "",
         "All metrics and case-level numerical comparisons are in metrics.json and cases.csv.",

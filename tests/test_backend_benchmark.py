@@ -3,7 +3,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import warnings
 
+import numpy as np
+from experiments import dorc_backend_benchmark
 from experiments.dorc_backend_benchmark import benchmark
 
 
@@ -35,6 +39,51 @@ class BackendBenchmark(unittest.TestCase):
             self.assertEqual(data["failed_cases"], 0)
             self.assertEqual(len((root / "result/cases.csv").read_text().splitlines()), 17)
             self.assertIn("throughput", (root / "result/report.md").read_text().lower())
+
+    def test_nonfinite_gpu_output_is_a_reported_negative_finding(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            config = self.config(root)
+
+            def faulty_batch(*args, **kwargs):
+                # Deliberately inject an invalid channel output, not an
+                # infrastructure exception, into one simulated case.
+                yield ([{"profile": "awgn", "seed": 3, "snr_db": 5}],
+                       np.full((1, 4096), np.nan + 1j * np.inf))
+
+            with patch.object(dorc_backend_benchmark, "iter_iq_batches", faulty_batch):
+                result = benchmark(config, root / "result", reference_cases=1)
+            self.assertEqual(result["status"], "NEGATIVE_FINDING")
+            self.assertEqual(result["failed_cases"], 1)
+            self.assertEqual(result["cases"][0]["finite"], False)
+            self.assertEqual(result["cases"][0]["matches_numpy"], False)
+            self.assertIsNone(result["cases"][0]["output_power"])
+            self.assertIsNone(result["max_absolute_error"])
+            self.assertEqual(
+                json.loads((root / "result/metrics.json").read_text())["status"],
+                "NEGATIVE_FINDING",
+            )
+            self.assertIn("NEGATIVE_FINDING", (root / "result/report.md").read_text())
+
+    def test_overflowed_gpu_power_is_a_reported_negative_finding(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            config = self.config(root)
+
+            def enormous_batch(*args, **kwargs):
+                yield ([{"profile": "awgn", "seed": 3, "snr_db": 5}],
+                       np.full((1, 4096), 1e200 + 1e200j))
+
+            with warnings.catch_warnings(), patch.object(
+                dorc_backend_benchmark, "iter_iq_batches", enormous_batch
+            ):
+                warnings.simplefilter("ignore", RuntimeWarning)
+                result = benchmark(config, root / "result", reference_cases=1)
+            self.assertEqual(result["status"], "NEGATIVE_FINDING")
+            self.assertIsNone(result["cases"][0]["output_power"])
+            self.assertIsNone(result["cases"][0]["max_absolute_error"])
+            self.assertIsNone(result["max_relative_rmse"])
+            json.loads((root / "result/metrics.json").read_text())
 
     def test_bounds(self):
         with tempfile.TemporaryDirectory() as name:
