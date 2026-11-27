@@ -39,6 +39,50 @@ Data2G's native sample rate; direct internal baseband values are unchanged.
 The full Data2G backend is **optional**, imported lazily, and retains its
 upstream Artistic-2.0 licensing. It is a dependency, not vendored source.
 
+## Baofeng K6 GP0 microphone-source impairment (measured-inspired)
+
+RF propagation noise and **source microphone noise are different stages**. A
+perfect Sotto digital link can deliver packets without adding RF hiss yet still
+reconstruct noise already present before encoding. The new optional audio-source
+model lets modem experiments simulate that distinction without overwriting any
+RF channel presets or conflating analog FM quieting with GP0 capture noise.
+
+```python
+import numpy as np
+from rfsim import k6_gp0_pcm, k6_gp0_profile, apply_audio
+
+fs = 8000
+# A sine with amplitude 1 represents 0.1Vpp at the external microphone jack.
+reference = np.sin(2*np.pi*1000*np.arange(fs)/fs)
+source_pcm = k6_gp0_pcm(reference, fs, seed=42)
+# The input-stage noise is now part of the PCM, before any Sotto encode step.
+# RFSim never encodes Sotto automatically: use the real codec harness next.
+metadata = k6_gp0_profile()
+
+# Illustrative analog FM receiver impairment (separate RF stage):
+fm_audio = apply_audio(source_pcm, fs, mode="fm", snr_db=30, seed=42)
+```
+
+`rfsim.k6_mic` is calibrated to CRC-verified **real K6 GP0 RAW AIR** tone
+captures taken November 27, 2026: 500Hz / 0.3984FS peak, 1kHz / 0.4184FS,
+2.8kHz / 0.3228FS, all at 0.1Vpp, and generator-OFF noise ~0.04231 FS RMS
+with the original Rust decimator. Noise-band estimates are from an earlier
+short *pre-vocoder PCM* capture. The model is a **stationary colored-noise and
+frequency-response approximation**, not a reconstruction of RFIC PDM samples,
+Sotto codec, input AGC, mic acoustic SPL, GP0 clock jitter or radio-specific
+FM discriminator noise. Only three frequencies were measured over 32–44ms;
+frequency response outside 500–2800Hz is held constant as an explicit model
+assumption. The source input convention means a stronger generator voltage
+increases modeled tone amplitude but not stationary noise.
+
+A host MCP server also exposes `get_k6_gp0_microphone_profile` and
+`simulate_k6_gp0_microphone(input_path, output_path, ...)`. The latter takes
+mono signed16/float 8kHz WAV and writes **a new float32 WAV**. It's an offline
+source impairment tool, not a radio control action. See Flux
+`docs/gp0-fidelity-offline-iteration-20261127.md` and
+`docs/k6-mic-input-path-decision-20261127.md` for the physical source, capture
+holes, and the planned controlled FM-vs-GP0 source qualification.
+
 ## Channel profiles
 
 Burst profiles: `awgn, mpg, mpp, mpd, mps, mpa, mpl, nvis-d, lowlat-d,

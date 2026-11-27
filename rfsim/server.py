@@ -142,6 +142,39 @@ def main():
         return read_report(path)
 
     @m.tool()
+    def get_k6_gp0_microphone_profile() -> dict:
+        """Measured K6 microphone-to-PCM calibration and its uncertainty."""
+        from .k6_mic import k6_gp0_profile
+        return k6_gp0_profile()
+
+    @m.tool()
+    def simulate_k6_gp0_microphone(input_path: str, output_path: str,
+                                   seed: int=0, input_vpp: float=0.1,
+                                   response: str="measured", noise_model: str="banded") -> dict:
+        """Apply K6 source noise BEFORE encoding, independent of RF channel.
+
+        Input: mono 8 kHz WAV (int16 or float), amplitude 1 = supplied input_vpp.
+        Output: new 8 kHz float32 WAV. Never operates the radio or overwrites input.
+        """
+        from scipy.io import wavfile
+        from .k6_mic import k6_gp0_pcm, k6_gp0_profile
+        fs, audio = wavfile.read(input_path)
+        if audio.ndim != 1 or audio.dtype not in (np.dtype('int16'),np.dtype('float32'),np.dtype('float64')):
+            raise ValueError("expected mono float or int16 WAV")
+        data = audio.astype(float) / 32768 if audio.dtype == np.dtype('int16') else audio.astype(float)
+        result = k6_gp0_pcm(data, fs, seed=seed, input_vpp=input_vpp,
+                            response=response, noise_model=noise_model)
+        if Path(output_path).resolve() == Path(input_path).resolve():
+            raise ValueError("output must not overwrite input")
+        with Path(output_path).open('xb') as f:
+            from io import BytesIO
+            stream=BytesIO();wavfile.write(stream,fs,result.astype(np.float32));f.write(stream.getvalue())
+        return dict(output=output_path,samples=len(result),sample_rate=fs,
+                    input_vpp=input_vpp,seed=seed,response=response,noise_model=noise_model,
+                    noise_rms_fs=k6_gp0_profile()['physical_generator_off_pcm_rms_full_scale'],
+                    stage='microphone to PCM, BEFORE codec/RF')
+
+    @m.tool()
     def simulate_data2g_fm(input_path: str,output_path: str,condition: str="static",
                            radio: str="mic",cnr_db: float|None=30,seed: int=0,
                            carrier_mhz: float=146.,duration_s: float=120,

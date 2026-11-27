@@ -1,4 +1,5 @@
 """Independent offline RF channel model."""
+from .k6_mic import k6_gp0_pcm, k6_gp0_profile, generate_gp0_noise
 from dataclasses import dataclass
 import json
 from pathlib import Path
